@@ -1,0 +1,26 @@
+{
+  "name": "jy-final",
+  "image": "rocker/rstudio:latest",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "REditorSupport.r",
+        "quarto.quarto",
+        "ms-toolsai.jupyter",
+        "ms-python.python"
+      ]
+    }
+  },
+
+  "remoteUser": "rstudio",
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "forwardPorts": [8787],
+
+  "postStartCommand": "echo 'Container ready — open RStudio at localhost:8787'"
+}
