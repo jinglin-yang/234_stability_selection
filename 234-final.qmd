@@ -1,0 +1,163 @@
+---
+title: "234 final project"
+format: html
+editor: visual
+---
+
+load pacakages
+```{r}
+# Load required packages
+library(hdi)
+library(stabs) 
+library(glmnet) 
+library(tidyverse)
+```
+
+load data
+y is the log transformed production rate of riboflavin, essentially vitamin B
+x is the log transformed gene data
+```{r}
+data("riboflavin")
+X <- riboflavin$x
+y <- riboflavin$y
+
+cat("Dimension of predictors: ", paste(dim(X), collapse = " x "), "
+")
+cat("Number of individual sample: ", length(y), "
+")
+```
+
+# permute 4082 genes and keep 6 unpermuted
+```{r}
+marginal_corr <- apply(X, 2, function(col) abs(cor(col, y)))
+top200 <- order(marginal_corr, decreasing = TRUE)[1:200]
+
+set.seed(123)
+true_genes_id <- sample(top200, 6)
+true_genes <- marginal_corr[true_genes_id]
+
+# Permute all other genes
+n <- nrow(X)
+noise_genes_id <- setdiff(1:ncol(X), true_genes_id)
+noise_genes <- X[, -true_genes_id]
+
+perm <- sample(1:n, n, replace = FALSE)
+X_perm <- X
+X_perm[, noise_genes_id] <- X[perm, noise_genes_id]
+
+X_sim <- X_perm
+```
+
+
+# Lasso Regularization Path
+```{r}
+fit_glm <- glmnet(X_sim, y, alpha = 1)
+
+plot(fit_glm, xvar = "lambda", label = TRUE,
+     xlab = expression(lambda), ylab = expression(beta))
+
+lasso_lambda <- fit_glm$lambda
+beta_mat <- as.matrix(fit_glm$beta) 
+beta_mat <- t(beta_mat) 
+combined_mat <- cbind(lasso_lambda, beta_mat)
+```
+```{r}
+plot(c(max(lasso_lambda), min(lasso_lambda)), range(beta_mat), type="n",
+     xlab=expression(lambda), ylab=expression(beta), main = "Lasso path")
+
+for (i in noise_genes_id){
+  lines(lasso_lambda, beta_mat[,i], col=adjustcolor("grey"), lty =2)
+}
+for (i in true_genes_id){
+  lines(lasso_lambda, beta_mat[, i], col="red")
+}
+```
+
+
+
+## Stability Selection with LASSO
+
+```{r}
+stability_lasso <- function(X, y, lambda_seq, B = 100) {
+  n <- nrow(X) 
+  p <- ncol(X) 
+  stab <- matrix(0, nrow = p, ncol = length(lambda_seq)) 
+  # p x l, each row is coef of each gene of a lambda
+  
+  for (j in seq_along(lambda_seq)) { #traverse through each lambda
+    lam <- lambda_seq[j] 
+    for (b in 1:B) { # loop through all subsamples
+      idx <- sample(1:n, n/2, replace = FALSE) 
+      fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam) 
+      stab[, j] <- stab[, j] + as.numeric(coef(fit)[-1] != 0) 
+      # update non-zero coef of all gene per lambda per sample
+    } 
+  } 
+  stab / B 
+}
+```
+
+? why the lambda generated from previous fit doesnt not result in convergence of percentage of unpermuted genes being selected out of samples to 0
+```{r}
+B_ <- 200
+lambda_seq <- lasso_lambda # regularization region
+stab_lasso <- stability_lasso(X_sim, y, lasso_lambda, B = B_)
+
+plot(range(lambda_seq), c(0,1), type="n",
+     xlab=expression(lambda), ylab=expression(pi), main="(b) Stability Path — Lasso")
+
+# Noise genes
+for (i in noise_genes_id) {
+  lines(lambda_seq, sl[i,], col="grey70", lty=2)
+}
+
+# True genes
+for (i in true_genes_id) {
+  lines(lambda_seq, sl[i,], col="red", lwd=2)
+}
+```
+
+
+
+
+# randomized lasso
+```{r stability-randomized-func}
+randomized_stability <- function(X, y, lambda_seq, B = 100, alpha = 0.2) {
+  n <- nrow(X)
+  p <- ncol(X)
+  stab <- matrix(0, nrow = p, ncol = length(lambda_seq))
+  
+  for (j in seq_along(lambda_seq)) {
+    lam <- lambda_seq[j]
+    for (b in 1:B) {
+      idx <- sample(1:n, n/2, replace = FALSE)
+      
+      # Random weights
+      w <- runif(p, alpha, 1)
+      Xw <- sweep(X[idx,], 2, w, "/")
+      
+      fit <- glmnet(Xw, y[idx], alpha = 1, lambda = lam)
+      stab[, j] <- stab[, j] + as.numeric(coef(fit)[-1] != 0)
+    }
+  }
+  stab / B
+}
+```
+
+
+```{r stability-randomized-run}
+stab_rand <- randomized_stability(X_sim, y, lambda_seq, B = 100)
+
+plot(range(lambda_seq), c(0,1), type="n",
+     xlab="λ", ylab="Π", main="(c) Stability Path — Randomized Lasso (α = 0.2)")
+
+# Noise genes
+for (i in noise_genes) {
+  lines(lambda_seq, stab_rand[i,], col="grey70", lty=2)
+}
+
+# True genes
+for (i in true_genes) {
+  lines(lambda_seq, stab_rand[i,], col="red", lwd=2)
+}
+```
