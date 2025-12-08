@@ -7,6 +7,7 @@ editor: visual
 ---
 
 load packages
+
 ```{r setup, include=FALSE}
     knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
@@ -116,7 +117,7 @@ stability_lasso <- function(X, y, lambda_seq, B = 100) {
     lam <- lambda_seq[j] 
     for (b in 1:B) { # loop through all subsamples
       idx <- sample(1:n, n/2, replace = FALSE) 
-      fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, standaridze= TRUE) 
+      fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, standaridze = TRUE) 
       stab[, j] <- stab[, j] + as.numeric(coef(fit)[-1] != 0)
       # update non-zero coef of all gene per lambda per sample
     } 
@@ -162,7 +163,6 @@ randomized_stability <- function(X, y, lambda_seq, B = 100, alpha = 0.2) {
       
       # Random weights each predictors
       w <- runif(p, alpha, 1)
-      # Xw <- sweep(X[idx,], 2, w, "/")
       
       fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, 
                     standardize = TRUE, penalty.factor = w)
