@@ -1,26 +1,58 @@
 {
-  "name": "jy-final",
-  "image": "rocker/rstudio:latest",
+    "name": "jy-final",
 
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "REditorSupport.r",
-        "quarto.quarto",
-        "ms-toolsai.jupyter",
-        "ms-python.python"
-      ]
+    "dockerFile": "Containerfile",
+    //"image": "ghcr.io/ucsb-pstat-234/fall2025:devel-v0.0.4-alpha",
+
+    "overrideCommand": false,
+    "shutdownAction": "none",
+    
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/jovyan/work,type=bind", 
+    "workspaceFolder": "/home/jovyan/work",
+
+    // https://jupyter-docker-stacks.readthedocs.io/en/latest/using/common.html#switching-back-to-the-classic-notebook-or-using-a-different-startup-command
+    "runArgs": [
+        "--env=DOCKER_STACKS_JUPYTER_CMD=server"
+    ],
+    "containerEnv": {
+        "RETICULATE_PYTHON": "/opt/conda/bin/python"
+    },
+
+    "forwardPorts": [8888, 9090],
+    "portsAttributes": {
+        "8888": {
+            "label": "Jupyterlab",
+            "onAutoForward": "ignore"
+        },
+        "9090": {
+            "label": "Codelabs",
+            "onAutoForward": "openPreview"
+        }
+    },
+
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/nils-geistmann/devcontainers-features/zsh:0": {}
+    },
+		
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.defaultInterpreterPath": "/opt/conda/bin/python",
+                "r.rterm.linux": "/opt/conda/bin/radian",
+                "r.bracketedPaste": true,
+                "r.plot.useHttpgd": true
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "ms-toolsai.jupyter-keymap",
+                "quarto.quarto",
+                "reditorsupport.r",
+                "RDebugger.r-debugger",
+                "ms-vscode.live-server",
+                "analytic-signal.preview-pdf"
+            ]
+        }
     }
-  },
-
-  "remoteUser": "rstudio",
-
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {},
-    "ghcr.io/devcontainers/features/git:1": {}
-  },
-
-  "forwardPorts": [8787],
-
-  "postStartCommand": "echo 'Container ready — open RStudio at localhost:8787'"
 }
