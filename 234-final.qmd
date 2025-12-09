@@ -1,18 +1,21 @@
 ---
-title: "234 final project"
-format: 
-  pdf:
-    fig-path: "/home/jovyan/work/234-plots"
+title: "234 Final Project: Stability Selection on High Dimensioinal Setting"
+author: "Jinglin Yang"
+date: today
+format:
+    pdf:
+        fig-path: "234-plots/"
 editor: visual
+execute:
+    warning: false
+    message: false
 ---
 
-load packages
+## Introduction
 
-```{r setup, include=FALSE}
-    knitr::opts_chunk$set(message = FALSE, warning = FALSE)
-```
+In this project, I would examine the enhanced feature selection techniques on high dimensional setting, where there are more variables than observations, i.e., $p >> n$. Since high dimensional problem suffers from unstable variable selection as there are too few samples to generalize the pattern, stability selection on resampling the limited observations helps improve the model by selecting the true, relevant dependent variables that account for the response. In addition, using regularization method, such as lasso, is even challenging because it is hard to choose the perfect or the right $\lambda$. And even small change of $\lambda$ can result in completely different set of variables.
 
-```{r load-package, message = FALSE}
+```{r load-package, message = FALSE, echo = FALSE}
 # Load required packages
 library(hdi)
 library(stabs) 
@@ -21,7 +24,7 @@ library(tidyverse)
 library(MASS)
 ```
 
-load data y is the log transformed production rate of riboflavin, essentially vitamin B x is the log transformed gene data
+The dataset being implemented is the riboflavin dataset from `hdi` package, which contains 4088 gene expression variables and 71 observations. The response variable is the logarithmic production rate of riboflavin, or vitamin B2.
 
 ```{r load-data}
 data("riboflavin")
@@ -36,9 +39,46 @@ cat("Number of individual sample: ", length(y), "
 ")
 ```
 
-# permute 4082 genes and keep 6 unpermuted
+## Mathematics Procedure
 
-```{r permute-data}
+1.  Define $q = \sqrt{0.8p}$ that specify maximum number of selected variables at each regularization level.
+2.  The regularization region $\Lambda = \{\lambda_1, \lambda_2, ..., \lambda_l\}$ has the inverval $[\lambda_{min}, \lambda_{max}]$ and is defined such that for all $\lambda \in \Lambda, |S^{\lambda}| \le q$, which ensures that no more than $q$ distinct variables contribute to the model across all regularization parameters.
+3.  For $b = 1,..., B$,
+
+-   Draw a subsample $I_b \subset {1, ..., n}, |I_b| = \frac{n} {2}$
+
+-   Let $X^{(b)} = X_{I_b}, y^{(b)} = y_{I_b}$
+
+4.  For each value $\lambda \in \Lambda$:
+
+-   For each $b \in \{1, ..., B\}$,
+
+    -   Fit a lasso estimator on the bootstrap sample with regularization parameter $\lambda$:
+
+        $\hat{\beta}^{(b)}(\lambda)= \min_{\beta} \left\{\,\|y^{(b)} - X^{(b)} \beta \|_2^{2}+ \lambda \|\beta\|_1\right\}$
+
+-   Given the selection set $S^{\lambda, b} = \{k: \hat\beta^{(b)}_k \neq  0\}$ from each subsample, calculate the selection probability for each signal predictors:
+
+    $\hat{{\Pi}^{\lambda}_k} = P(K \subset S^{\lambda,b}) = \frac{1}{B} \sum_{b=1}^{B} \mathbf{I}_{\{ k\in \hat{S}^{\lambda, b} \}}$
+
+-   The selection probability for predictor $k$ is its probability of having nonzero coefficients under regularization level $\lambda$ over $B$ samples.
+
+5.  Given a predefined threshold $\pi_{thr} \in \ (0, 1)$ and the selection probabilities $\hat{\Pi^{\lambda}_k}$ for each predictor and for each value of $\lambda$, construct that stable set as: $$\hat{S_{stable}} = \{k: max_{\lambda \in \Lambda} \hat{\Pi^{\lambda}_k} \ge \pi_{thr} \}$$These are predictors that are selected frequently across subsamples and across different regularization strengths
+6.  (Optional) Randomized Lasso Weighting step
+
+-   Each subsample uses randomized penalty wights $$w^{(b)}_j \sim U(\alpha, 1),$$where $\alpha \in (0, 1]$ is the predefined weakness level.
+
+    the randomized lasso estimator becomes: $$\hat{\beta^{(b)}} = \min_{\beta} \left\{\,\|y^{(b)} - X^{(b)}\beta\|_2^{2} + \lambda \sum_{k=1}^{p} \frac{|\beta_k| }{w_k^{(b)}} \right\}$$
+
+## Reproducing Procedure
+
+In this section, I am going to reproduce figure 1 in the original paper that plot the regularization path, lasso stability path, and randomized lasso stability path on riboflavin dataset.
+
+Below is the permutation process that the author set up to randomly select 6 gene expression variable out of 200 most correlated variables to the response, and the rest 4082 variables are permuted to serve as noise variables.
+
+Permutation helps us examine the performance of stability selection whether it can correctly select the 6 signal variables other than over 4000 noise variables.
+
+```{r permute-data , echo = FALSE}
 marginal_corr <- apply(X, 2, function(col) abs(cor(col, y)))
 top200 <- order(marginal_corr, decreasing = TRUE)[1:200]
 
@@ -58,9 +98,13 @@ X_perm[, noise_genes_id] <- X[perm, noise_genes_id]
 X_sim <- X_perm
 ```
 
-# Lasso Regularization Path
+## Regularization grid selection
 
-```{r fit-lasso}
+So one of the advantages of stability selection is that we do not need to manually select $\lambda$. Instead, we pre-define $q = \sqrt{0.8p}$, which specify the maximum number of non-zero variables to enter the model among all $\lambda \in \Lambda$, controlling the model complexity. The regularization region $\Lambda$ is defined such that for all $\lambda \in \Lambda$, the number of non-zero coefficients of that fit on $\lambda$ cannot exceed $q$.
+
+After we obtain $\Lambda$, all values are rescaled so it has the interval \[0, 1\], where no variables will be selected at $\lambda = 1$ and $q$ variables will be selected when $\lambda = 0$
+
+```{r fit-lasso, echo = FALSE}
 fit_glm <- glmnet(X_sim, y, alpha = 1, standardize = TRUE)
 ```
 
@@ -89,7 +133,9 @@ beta_mat <- t(beta_mat) # transpose, l x p
 combined_mat <- cbind(lasso_lambda, beta_mat)
 ```
 
-```{r regularization-plot, fig.height = 6, fig.width = 4.5, dpi = 300}
+The lasso regularization plot indicates that only 2 of the 6 unpermuted variables stands out while the rest are lost among the noise variables. It is showing that even though some variables are relevant ones, they would not be selected for some values of $\lambda\text{s}$, such as $\lambda = 0.8$, visualizing the instability on feature selection.
+
+```{r regularization-plot, fig.height = 6, fig.width = 4.5, dpi = 300, fig.align = 'center', echo = FALSE}
 plot(c(max(lasso_lambda), min(lasso_lambda)), range(beta_mat), type="n",
      xlab=expression(lambda), ylab=expression(beta), 
      xlim = rev(range(lasso_lambda)),
@@ -105,6 +151,8 @@ for (i in true_genes_id){
 
 ## Stability Selection with LASSO
 
+Here, we define `stability_lasso` to first loop through all $\lambda$ and then loop through all subsamples $I_b$, where $|I_b| = \frac{n}{2}$ without replacement and perform lasso regression on $I_b$ with $\lambda$. The total number of fit is $p \times l$, where $p$ is number of variables and $l = |\Lambda|$. Then the selection probabilities of $k^{th}$ variable at $\lambda$ is calculated, represent by $\pi^\lambda_k$, and stored in a `stab`$\in \mathbb{R}^{p \times l}$.
+
 ```{r stability-lasso-func}
 stability_lasso <- function(X, y, lambda_seq, B = 100) {
   # X: n x p
@@ -117,7 +165,8 @@ stability_lasso <- function(X, y, lambda_seq, B = 100) {
     lam <- lambda_seq[j] 
     for (b in 1:B) { # loop through all subsamples
       idx <- sample(1:n, n/2, replace = FALSE) 
-      fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, standaridze = TRUE) 
+      fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, 
+                    standaridze= TRUE) 
       stab[, j] <- stab[, j] + as.numeric(coef(fit)[-1] != 0)
       # update non-zero coef of all gene per lambda per sample
     } 
@@ -126,16 +175,16 @@ stability_lasso <- function(X, y, lambda_seq, B = 100) {
 }
 ```
 
-? why the lambda generated from previous fit doesnt not result in convergence of percentage of unpermuted genes being selected out of samples to 0
+The lasso stability path demonstrates the selection probabilities of variables at different regularization $\lambda$. From the plot, we can inspect that all 6 relevant genes stood out on top of all noise variables.
 
-```{r stability-lasso-run, fig.height = 6, fig.width = 4.5, dpi = 300}
+```{r stability-lasso-run, fig.height = 6, fig.width = 4.5, dpi = 300,fig.align = 'center', echo = FALSE}
 B_ <- 100
 stab_lasso <- stability_lasso(X_sim, y, lasso_lambda, B = B_)
 
 plot(range(lasso_lambda), c(0,1), type="n",
      xlab=expression(lambda), ylab=expression(pi), 
      xlim = rev(range(lasso_lambda)),
-     main="(b) Stability Path — Lasso")
+     main="(b) Stability Path - Lasso")
 
 # Noise genes
 for (i in noise_genes_id) {
@@ -148,7 +197,13 @@ for (i in true_genes_id) {
 }
 ```
 
-# randomized lasso
+## Stability selection with Randomzied Lasso
+
+Instead of fitting a standard lasso regression, randomized lasso apply additional penalty weights, $w^b_j$ on each variable $j$ when fitting the model in each $I_b$. The penalty weights are randomly distributed in $Unif(\alpha, 1)$, and $\alpha$ is the predefined weakness level between 0 and 1, excluding 1. When $\alpha = 1$, it is just the standard lasso, because all variables are penalized by 1, which does not change anything.
+
+When $\alpha$ is small, for example $\alpha = 0.2$, strong randomization is implemented, where variables are perturbed more significantly. This tends to break symmetry among correlated variables and prevents one variable from dominating. A large $\alpha$ (closer to 1) results in weak randomization and predictors are barely perturbed. Thus, correlated variables may compete and one may consistently outperform the others. In practice, $\alpha$ is usually chosen between 0.2 and 0.5.
+
+Similarily, selection probabilities of each variable at different $\lambda$ values are calculated once all subsamples are fitted.
 
 ```{r stability-randomized-func}
 randomized_stability <- function(X, y, lambda_seq, B = 100, alpha = 0.2) {
@@ -163,7 +218,6 @@ randomized_stability <- function(X, y, lambda_seq, B = 100, alpha = 0.2) {
       
       # Random weights each predictors
       w <- runif(p, alpha, 1)
-      
       fit <- glmnet(X[idx,], y[idx], alpha = 1, lambda = lam, 
                     standardize = TRUE, penalty.factor = w)
       stab[, j] <- stab[, j] + as.numeric(coef(fit)[-1] != 0)
@@ -173,7 +227,9 @@ randomized_stability <- function(X, y, lambda_seq, B = 100, alpha = 0.2) {
 }
 ```
 
-```{r stability-randomized-run, fig.height = 6, fig.width = 4.5, dpi = 300}
+The randomized lasso stability path further separates the signal variables from noise variables and only unpermuted variables are included in the model at the very beginning of regularization grid. This highlights that the model can accurately locate the signal variables very quickly, indicating increased accuracy and stability for feature selections.
+
+```{r stability-randomized-run, fig.height = 6, fig.width = 7, dpi = 300, echo = FALSE}
 stab_rand <- randomized_stability(X_sim, y, lasso_lambda, B = 100, alpha = 0.2)
 
 plot(range(lasso_lambda), c(min(stab_rand), max(stab_rand)), type="n",
@@ -192,13 +248,41 @@ for (i in true_genes_id) {
 }
 ```
 
-## extension numerical results
+## Differences in reproducing results
 
-in reality, it is nearly impossible to find perfect dataset that satisfy all the assumptions, such as iid samples that do not have any correlation and data set with perfect distribution; Thus, I want to examine the robustness of stability selection of lasso and randomized lasso on simulated data that is imperfect with correlated predictors. Correlated predictors can affect the regularization
+Even though I am using the same dataset as the paper used, the sample size of the dataset in paper is larger than mine. In addition, it may also due to software differences because the software setup is not provided.
 
-## Extension
+## Extension study on numerical results
 
-fit the stabilitys election on correlated dataset, lasso and randmoized lasso
+In reality, it is nearly impossible to find perfect dataset that satisfy all regression assumptions and exchangeability assumption, such as equal variance for all variables and zero correlation among all variables. The violation on assumption would negatively impact the performance of lasso regression since it penalizes coefficients rather than standardized effects. Thus, I want to examine the robustness of stability selection of lasso and randomized lasso on misspecified simulated data that is imperfect with correlated predictors $X_1$ and $X_2$.
+
+### Simulation setting
+
+-   $p= 2000$, $n = 50$
+
+<!-- -->
+
+-   Relevant predictors: $X_1, X_2, X_3, X_4$, Noise predictors: $X_5, ..., X_{2000}$
+
+-   $\beta = [1,1,1,1,0,...,0]$, $\epsilon \sim N(0, \frac{1}{4})$,
+
+-   $Y = X\beta + \epsilon$
+
+-   $var(X_1) = 1.2 \neq var(X_2) = 0.5 \neq var(X_3) = 1 =... = var(X_{2000}) = 1$
+
+-   $corr(X_1, X_2) = \rho = 0.8, cov(X_1, X_2) = 0.6196773 \approx 0.62$
+
+Due to above predefined setting, the covariance matrix $\Sigma$ can be derived and fit into the simulation function.
+
+$$
+\Sigma = \begin{bmatrix}1.2 & 0.62 & 0 & 0 & ... & 0\\0.62 & 0.5 & 0 & 0 &  ...  &0 \\ 0 & 0 & 1 & 0  & ...  & 0 \\ 0 & 0 &0 &1& ... &0 \\ . & . &. &. &. &. & \\ . & . &. &. &. &. \\ 0&0&0&0&0& 1\end{bmatrix}
+$$
+
+$X$ is simulated using `mvrnorm` function with `mns` vector containing all means of variables and `sigma` is a covariance matrix defined by `make_sigma`. Y is a vector of all response values $Y = X{\beta} + \epsilon$.
+
+In order to regenerate different simulated data for different scenarios, `simulate_data` is a function that takes $n, p, \rho, var(X_1), Var(X_2)$.
+
+In this section, I want to examine the impact of 1) value of correlation $\rho \in [-1, 1]$ and 2) the magnitude of variances on correlated variables on stability selection performance, as lasso is sensitive to the variances.
 
 ```{r sigma-function}
 make_sigma <- function(p, rho, v1 = 1, v2 = 1){
@@ -212,7 +296,7 @@ make_sigma <- function(p, rho, v1 = 1, v2 = 1){
 ```
 
 ```{r data-sim-func}
-simulate_data <- function(n, p, rho, var_x1, var_x2, signals){
+simulate_data <- function(n, p, rho_, var_x1, var_x2, signals){
     # epsilon, noise simulation, epsilon - N(0, 1/4), var = 1/2 
     eps <- rnorm(n, 0, sd = 1/4) 
 
@@ -223,7 +307,8 @@ simulate_data <- function(n, p, rho, var_x1, var_x2, signals){
     # predictor values simulation 
     mns <- rep(0, p) # mean of each predictor 
     var_x1 <- 1.2; var_x2 <- 0.5
-    sigma <- make_sigma(p, rho = rho_) #, v1 = var_x1, v2 = var_x2 # covariance matrix of predictors 
+    sigma <- make_sigma(p, rho = rho_, v1 = var_x1, v2 = var_x2) 
+    # covariance matrix of predictors 
     sim_X <- mvrnorm(n, mu = mns, Sigma = sigma) # n x p 
     colnames(sim_X) <- paste0("X", 1:p) 
     
@@ -235,15 +320,15 @@ simulate_data <- function(n, p, rho, var_x1, var_x2, signals){
     
     # error control to define regularization region of lambda
     sim_q <- sqrt(0.8*p)
-    sim_coefs <- coef(fit_sim)[-1, ]  # remove intercept row
+    sim_coefs <- coef(fit_sim)[-1, ]  # remove intercepts
     sim_selected_counts <- apply(sim_coefs, 2, function(col) sum(col != 0))
     sim_idx <- which(sim_selected_counts >= sim_q)[1]
-    sim_lambda_region <- fit_sim$lambda[1:sim_idx]  # from largest to chosen lambda
+    sim_lambda_region <- fit_sim$lambda[1:sim_idx] 
     
     # lambda rescale to [0, 1]
     sim_idx_null <- which(sim_selected_counts == 0)[1]
-    sim_lambda_null <- fit_sim$lambda[sim_idx_null]      # null model lambda (max penalty)
-    sim_lambda_min_full <- min(fit_sim$lambda)       # minimal lambda in full path
+    sim_lambda_null <- fit_sim$lambda[sim_idx_null]# max penalty
+    sim_lambda_min_full <- min(fit_sim$lambda) # minimal lambda in full path
     
     sim_lambda_scaled <- (sim_lambda_region - sim_lambda_min_full)/(sim_lambda_null - sim_lambda_min_full)
     sim_lambda_seq <- sim_lambda_scaled
@@ -266,7 +351,7 @@ sim_X <- results1$X; sim_y <- results1$y
 sim_lambda_seq <- results1$lambda_sq # regularization region
 ```
 
-```{r stab-lasso-check-corr, fig.height = 6, fig.width = 4.5, dpi = 300}
+```{r stab-lasso-check-corr, fig.height = 6, fig.width = 8, dpi = 300, echo = FALSE}
 # stability selectin performance inspection
 B_ <- 100
 selection_threshold <- 0.9
@@ -276,7 +361,7 @@ par(mar = c(5, 5, 4, 8))
 plot(c(max(sim_lambda_seq), min(sim_lambda_seq)), c(0,1), type="n",
      xlab=expression(lambda), ylab=expression(pi), 
      xlim = rev(range(sim_lambda_seq)),
-     main="(b) Stability Path — Lasso")
+     main="(b) Stability Path - Lasso")
 
 for (i in seq_len(nrow(sim_stab_lasso))) {
   if (i == 1){
@@ -298,7 +383,9 @@ legend("topright",legend = c("X1", "X2", "X3", "X4"),col = c("red", "yellow", 'b
 par(xpd = FALSE) 
 ```
 
-```{r stab-rand-lasso-check-corr, fig.height = 7, fig.width = 5, dpi = 300}
+In the above lasso stability path, all four relevant variables stands out and is included as part of the model at very early stage of regularization path. However, the high correlation between $X_1$ and $X_2$ reduced the stability on one of the variables which is $X_1$ in this run. The results presented here is different from the result I presented in the slide because standardization is applied but not in previous setting. In addition, there is one noise variable that has the similar path as $X_3$, meaning that this variable is consistently included in the model which is not expected. The rest of the noise variables behaves expectedly with low selection probabilities along the regularization path.
+
+```{r stab-rand-lasso-check-corr, fig.height = 6, fig.width = 8, dpi = 300, echo = FALSE}
 # randomized lasso stability selection
 B_ <- 100
 sim_stab_rand <- randomized_stability(sim_X, sim_y, sim_lambda_seq, B = B_, alpha = 0.2)
@@ -307,7 +394,7 @@ par(mar = c(5, 5, 4, 8))
 plot(range(sim_lambda_seq), c(min(sim_stab_rand), max(sim_stab_rand)), type="n",
      xlab=expression(lambda), ylab=expression(pi), 
      xlim = rev(range(sim_lambda_seq)),
-     main="(c) Stability Path — Randomized Lasso (α = 0.2)")
+     main="(c) Stability Path - Randomized Lasso (α = 0.2)")
 
 for (i in seq_len(nrow(sim_stab_lasso))) {
   if (i == 1){
@@ -328,7 +415,11 @@ legend("topright",legend = c("X1", "X2", "X3", "X4"),col = c("red", "yellow", 'b
 par(xpd = FALSE) 
 ```
 
-## proportion x1 selected vs x2 selected: lasso vs rand lasso
+In the above randomized lasso stability path, the selection probabilities are low overall but more stable and smoother among the regularization path, while $X_3$ is blended among the noise variables, indicating that the effect of $X_3$ is relatively weak compared to other 3 signal variables. Also, the gap between $X_1$ and $X_2$ reduces significantly, alleviating the correlational relationship between these two variables.
+
+### Proportion $X_1$ selected vs $X_2$ selected
+
+The below code and graph specifically looks at stabilities path on $X_1$ and $X_2$, and the reduction in gap is more obvious, where in randomized lasso, two paths essentially overlap each other.
 
 ```{r proportion-comparison, fig.height = 6, fig.width = 12, dpi = 300}
 par(mfrow = c(1, 2),mar = c(4, 4, 3, 1))
@@ -363,16 +454,18 @@ legend("bottomleft", legend = c("X1", "X2"), col = c("red", "blue"),
        lwd = 2, bty = "n")
 ```
 
-## comparison of different rho (rand lasso)
+## Comparison of different $\rho$
+
+In this subsection, I vary the values of correlation $\rho = 0.2, 0.6, 1$. A smaller $\rho$ values indicate weak correlation between the correlated variables, 0.6 indicate moderate correlation, and 1 indicate perfect correlation. When $\rho = 1$, the encoded information in $X_1$ and $X_2$ is overlapping, suggesting that they are likely to have the same effect on response variables.
+
+Because $\rho$ is changed, the dataset are re-simulated, which will result in different result compared to previous conclusion.
 
 ```{r rho-comparison}
 rho_vals <- c(0.2, 0.6, 1)
 simulation_results <- list()
 
 for (r in rho_vals) {
-  cat("Running simulation for rho =", r, "\n")
-  
-  results <- simulate_data(n = n_sim, p = p_sim, rho = r, var_x1 = var_x1, 
+  results <- simulate_data(n = n_sim, p = p_sim, rho_ = r, var_x1 = var_x1, 
                            var_x2 = var_x2, signals = signals)
   
   X_sim <- results$X
@@ -404,7 +497,7 @@ stab_lasso_1 <- res1$stab_lasso
 stab_random_1 <- res1$stab_random
 ```
 
-```{r rho-comp-plot-func}
+```{r rho-comp-plot-func, echo = FALSE}
 plot_stability_two_vars <- function(lambdas, stab, rho_value, method_name) {
   x1 <- stab[1, ]
   x2 <- stab[2, ]
@@ -419,6 +512,10 @@ plot_stability_two_vars <- function(lambdas, stab, rho_value, method_name) {
          lwd = 2, pch = 16, bty = "n")
 }
 ```
+
+In the below figure where three different $\rho$ are tested on both standard lasso and randomized lasso, the first row are stability paths from the lasso and the second row presents stability path fitted on the randomized lasso. Throughout all lasso path, $X_1$ has dominate selection probabilities over the regularization values while $X_2$'s selection probabilities is very unstable, and the gap of selection probabilities exaggerates as $\rho \rightarrow 1$. This is likely caused by the increases in overlapping representation on response variable, and thus, Lasso would tend to select only one variable in the correlated pair.
+
+Not surprisingly, in the randomized lasso stability path, the gap between $X_1$ and $X_2$ is much smaller than that in standard lass due to the additional randomized penalty. The penalty weights equalize the selection probabilities and minimize the dominance effect of one variable. In addition, there is a trade-off between selecting $X_1$ and $X_2$ that when $X_1$ is chosen with higher percentage, $X_2$ is chosen less along the regularization grid. As $X_1$ and $X_2$ have more common information, randomized lasso just arbitrarily choose one of them.
 
 ```{r rho-comparison-plots, fig.width=12, fig.height=10, dpi = 300}
 par(mfrow = c(2, 3), mar = c(4,4,3,1))
@@ -439,7 +536,17 @@ plot_stability_two_vars(lambdas = res1$lambda_seq1, stab = stab_random_1,
                         rho_value = 1,method_name = "Randomized Lasso")
 ```
 
-## comparison of magnitude of variances
+## Comparison of magnitude of variances
+
+In the last section, I want to examine whether the magnitude of variances would affect the stability selection performance, by only changing the variance of $X_1$ while $var(X_2) = 0.5$ among three test cases.
+
+-   $var(X_1) = 1.2, var(X_2) = 0.5, ratio = 2.4$
+
+-   $var(X_1) = 3, var(X_2) = 0.5, ratio = 6$
+
+-   $var(X_1) = 5, var(X_2) = 0.5, ratio = 10$
+
+The variance ration is equal to $\frac{var(X_1)}{var(X_2)}$ and all ratios are greater than 1 that $var(X_1) > var(X_2)$. The data are also re-simulated.
 
 ```{r var-comparison}
 #specify different variances to x1 and x2; focus on the ratio x1/x2 only
@@ -449,7 +556,7 @@ rho1 <- 0.8
 i <- 1
 for (vars in var_set) {
   vx1 <- vars[1]; vx2 <- vars[2]
-  res <- simulate_data(n = n_sim, p = p_sim, rho = rho1, var_x1 = vx1, 
+  res <- simulate_data(n = n_sim, p = p_sim, rho_ = rho1, var_x1 = vx1, 
                        var_x2 = vx2, signals = signals)
   X_sim <- res$X
   y_sim <- res$y
@@ -463,7 +570,7 @@ for (vars in var_set) {
 }
 ```
 
-```{r}
+```{r echo = FALSE}
 # Build a list for easy plotting: results_plot[[ratio]][[method]]
 results_plot <- list()
 
@@ -482,10 +589,13 @@ for (i in seq_along(results_var)) {
          random = list(lambda__ = lambda_seq_, X1 = prob_rand[1, ],
                        X2 = prob_rand[2, ]))
 }
-
 ```
 
-```{r var-comparison-plots, fig.width=12, fig.height=8, dpi = 300}
+In the below figure present six different plots that test different variance ratio on both standard lasso and randomized lasso, at $\rho = 0.8$. In standard lasso, as the variance ratio increases, both signal variables can be included in the stable set but selection probabilities are less stable for both variables; in the topleft plot, the two paths are stable across the regularization grid, whereas in the middle and right plots of the first row, the selection path has a downward trend over the regularization values. Specifically, when ratio = 6, the gap is the largest, in correlated pair, indicating that high-variance variable are more stable as they are penalized less heavily, leading to biased selection.
+
+Randomized lasso shows better consistency in selecting both variables, alleviating the effect from variance magnitude; however, except in ratio = 2.4 that $X_1$ can be included in the stable set, none of the correlated pair can pass $\pi_{thr}$ to enter the model and be considered to the signal variable even though they are true signals.
+
+```{r var-comparison-plots, fig.width=12, fig.height=8, dpi = 300, echo = FALSE}
 par(mfrow = c(2, 3), mar=c(4,4,2,1))
 
 methods <- c("lasso", "random")
@@ -512,3 +622,17 @@ for (method in methods) {
   }
 }
 ```
+
+## Conclusion
+
+Stability selection is a powerful framework for identifying true signal variables in high-dimensional settings, demonstrating  robustness across varying correlation structures and variance imbalances. The implementation on the riboflavin dataset reveals that both standard lasso and randomized lasso maintain high selection probabilities (πj≈1πj​≈1) for true signal variables across different regularization parameters, effectively distinguishing signals from noise. In the last extended comparison, when variables have heterogeneous variances, randomized lasso outperforms standard lasso by keeping both true signals more equally selected, whereas standard lasso exhibits a larger gap between signal variables due to its scale-sensitive penalty. This advantage becomes particularly apparent at extreme variance ratios, suggesting that randomized lasso can mitigate bias caused by variable heterogeneity via randomized penalty weights.
+
+For practitioners analyzing complex biological datasets, especially gene expression datasets, stability selection coupled with randomized penalties is an effective approach to identify relationships between responses and signal variables while maintaining strict control over false discoveries. Future work should explore the interplay with optimal threshold selection to further refine stability selection for robust feature selection.
+
+However, some limitations should be considered. The application is computationally expensive: when \$p\$ is large, a single lasso fit on that data takes longer to run, and repeated subsampling would make it even worse. Another noticeable issue is that weak signals can fail to be included in the stable set even when they do not exceed the threshold, and thus are missed even if they are relevant. This technique also relies on the exchangeability assumption that the selection probabilities of all noise variables are equal, which is hard to satisfy. When this assumption is violated, meaning that some noise variables have higher selection probabilities, it might lead to biased selections. Finally, the standard lasso struggles with correlated variables, leading to unstable selections.
+
+## Citation
+
+Nicolai Meinshausen, Peter Bühlmann, Stability Selection, Journal of the Royal Statistical Society Series B: Statistical Methodology, Volume 72, Issue 4, September 2010, Pages 417–473, <https://doi.org/10.1111/j.1467-9868.2010.00740.x>
+
+Bühlmann, P., Kalisch, M. and Meier, L. (2014) *High-dimensional statistics with a view towards applications in biology*. Annual Review of Statistics and its Applications **1**, 255–278
